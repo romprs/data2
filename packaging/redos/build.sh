@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 NAME="watermark-overlay"
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 TOPDIR="$SCRIPT_DIR/rpmbuild"
 rm -rf "$TOPDIR"

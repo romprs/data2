@@ -38,8 +38,13 @@ python3 watermark_overlay.py
 | `--font-size` | `18` | Размер шрифта |
 | `--angle` | `-30` | Угол наклона тайлов, градусы |
 | `--spacing` | `80` | Отступ между тайлами, px |
+| `--mode` | `always` | `always` — всегда видим, `app_list` — только пока открыто приложение из `--apps` |
+| `--apps` | `""` | Список подстрок `WM_CLASS` через запятую, напр. `soffice,acroread,firefox` |
+| `--watermark-type` | `text` | `text` — шаблон `--text`, `account` — всегда учётная запись ОС |
 
 Пример: `python3 watermark_overlay.py --text "{user} · {time}" --opacity 60`
+
+Пример условного показа: `python3 watermark_overlay.py --mode app_list --apps "soffice,acroread" --watermark-type account`
 
 ## Управление прозрачностью и остальными настройками (конфиг-файл)
 
@@ -62,7 +67,10 @@ python3 watermark_overlay.py
   "opacity": 45,
   "font_size": 18,
   "angle": -30.0,
-  "spacing": 80
+  "spacing": 80,
+  "watermark_type": "text",
+  "mode": "always",
+  "apps": []
 }
 ```
 
@@ -78,6 +86,46 @@ cp config.example.json ~/.config/watermark-overlay/config.json
 в течение примерно секунды после сохранения файла. Чтобы сделать знак
 заметнее/незаметнее — просто отредактируйте `opacity` (0-255) в
 конфиге и сохраните.
+
+## Когда показывать знак (`mode`, `apps`) и что показывать (`watermark_type`)
+
+**`mode`** — когда виден знак:
+
+| Значение | Поведение |
+|---|---|
+| `"always"` (по умолчанию) | знак виден всегда, поверх всех окон |
+| `"app_list"` | знак виден, только пока открыто хотя бы одно окно из списка `apps` — независимо от того, в фокусе оно или нет |
+
+**`apps`** — список подстрок, которые ищутся (без учёта регистра) в
+`WM_CLASS` открытых окон. Используется только при `mode: "app_list"`.
+`WM_CLASS` — это техническое имя приложения в X11 (не заголовок окна);
+узнать его для конкретного приложения:
+
+```bash
+xprop WM_CLASS   # затем кликнуть на окно приложения
+```
+
+Типичные значения: `soffice`/`libreoffice` (LibreOffice), `acroread`,
+`okular`, `evince` (PDF), `firefox`, `chromium`, `code` (VS Code).
+Проверка на совпадение — по подстроке, так что `"office"` поймает и
+`libreoffice-writer`, и `libreoffice-calc`.
+
+**`watermark_type`** — что именно написано на знаке:
+
+| Значение | Поведение |
+|---|---|
+| `"text"` (по умолчанию) | рендерится шаблон из `text` (`{user}`/`{host}`/`{time}`) |
+| `"account"` | шаблон `text` игнорируется, всегда рендерится учётная запись ОС: полное имя из GECOS (`/etc/passwd`), если задано, иначе `user@host` — этот вариант нельзя случайно настроить так, чтобы он перестал показывать личность пользователя |
+
+Пример конфига «знак только при работе с офисными/PDF-приложениями и
+браузером, показывать учётную запись» — см.
+[`config.example.app_list.json`](config.example.app_list.json).
+
+Проверка активности пересчитывается по опросу (~2 раза/сек через
+`_NET_CLIENT_LIST`, нужен `python-xlib` и WM с поддержкой EWMH — так же,
+как для "прилипания" к рабочим столам выше). Если `python-xlib`
+недоступен или нет подключения к X — модуль **показывает знак**
+(fail-open), а не скрывает его молча.
 
 ## Как это работает
 
@@ -109,6 +157,10 @@ cp config.example.json ~/.config/watermark-overlay/config.json
 - Это только экранный/скриншотный/фото-слой. Печать этим модулем **не**
   покрывается — для неё отдельный модуль перехвата печати (раздел 4.3
   плана, Этап 2), т.к. печать не идёт через композитор рабочего стола.
+- `mode: "app_list"` определяет совпадение по `WM_CLASS` любого открытого
+  окна (не только окна в фокусе), но это опрос раз в ~500мс, а не
+  событие — при открытии/закрытии приложения знак появляется/исчезает
+  с задержкой до полусекунды, а не мгновенно.
 - Anti-tamper здесь минимальный: пример systemd-юнита в `systemd/`
   перезапускает процесс при падении, но не защищает от `systemctl
   --user stop` обычным пользователем — полноценный anti-tamper
@@ -156,5 +208,6 @@ Headless smoke-тест (поднимает Xvfb + openbox + xterm, провер
 ```bash
 sudo apt-get install -y xvfb openbox xterm xdotool imagemagick
 pip install pillow
-bash ../../tests/linux/run_smoke_test.sh
+bash ../../tests/linux/run_smoke_test.sh       # always-on watermark: render/full-screen/click-through
+bash ../../tests/linux/run_app_list_test.sh    # mode=app_list: hidden -> shown -> hidden
 ```

@@ -7,8 +7,8 @@ Content and editing are untouched: the window forwards all mouse and
 keyboard input to whatever is beneath it (Qt.WindowTransparentForInput)
 and never takes focus.
 
-Settings (text/opacity/font size/angle/spacing) come from, in order of
-increasing priority:
+Settings (text/opacity/font size/angle/spacing/mode/apps/watermark_type)
+come from, in order of increasing priority:
   1. built-in defaults
   2. /etc/watermark-overlay/config.json      (system-wide default)
   3. ~/.config/watermark-overlay/config.json (per-user)
@@ -19,14 +19,26 @@ The active config file is watched for changes: editing it (e.g. to
 tweak --opacity) updates the on-screen watermark within ~1s, no restart
 needed -- handy when running this under systemd.
 
+Two settings control *when* and *what* is shown:
+  - "mode": "always" (default) shows the watermark all the time, or
+    "app_list" shows it only while one of the "apps" substrings matches
+    the WM_CLASS of any currently open window (checked ~2x/sec via
+    _NET_CLIENT_LIST; requires python-xlib and an EWMH window manager).
+  - "watermark_type": "text" (default) renders the "text" template, or
+    "account" ignores "text" and always renders the OS account identity
+    (full name from /etc/passwd GECOS if set, else "user@host").
+
 Run:
     python3 watermark_overlay.py [--config PATH] [--text TEMPLATE]
                                   [--opacity 0-255] [--font-size PX]
                                   [--angle DEG] [--spacing PX]
+                                  [--mode always|app_list] [--apps A,B,C]
+                                  [--watermark-type text|account]
 """
 import argparse
 import getpass
 import json
+import pwd
 import socket
 import sys
 from datetime import datetime
@@ -35,7 +47,7 @@ from pathlib import Path
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 try:
-    from Xlib import display as xlib_display
+    from Xlib import X, display as xlib_display
 
     _HAS_XLIB = True
 except ImportError:
@@ -47,7 +59,25 @@ HARD_DEFAULTS = {
     "font_size": 18,
     "angle": -30.0,
     "spacing": 80,
+    "watermark_type": "text",  # "text" | "account"
+    "mode": "always",  # "always" | "app_list"
+    "apps": [],  # WM_CLASS substrings used when mode == "app_list"
 }
+
+
+def account_label() -> str:
+    """Fixed 'учётная запись' watermark: full name (GECOS) if available,
+    otherwise just user@host -- unlike "text" this ignores the template
+    and can't be customized beyond opacity/font/etc., so it can't
+    accidentally be reconfigured to omit the identity."""
+    user = getpass.getuser()
+    host = socket.gethostname()
+    try:
+        full_name = pwd.getpwnam(user).pw_gecos.split(",")[0].strip()
+    except (KeyError, IndexError):
+        full_name = ""
+    return f"{full_name} ({user}@{host})" if full_name else f"{user}@{host}"
+
 
 SYSTEM_CONFIG_PATH = Path("/etc/watermark-overlay/config.json")
 USER_CONFIG_PATH = Path.home() / ".config/watermark-overlay/config.json"
@@ -162,7 +192,10 @@ class WatermarkOverlay(QtWidgets.QWidget):
         self.setGeometry(self._screen.geometry())
 
     def watermark_text(self) -> str:
-        return self._settings.values["text"].format(
+        v = self._settings.values
+        if v.get("watermark_type") == "account":
+            return account_label()
+        return v["text"].format(
             user=getpass.getuser(),
             host=socket.gethostname(),
             time=datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -214,6 +247,7 @@ class OverlayManager(QtCore.QObject):
         self._app = app
         self._settings = settings
         self._overlays: dict[QtGui.QScreen, WatermarkOverlay] = {}
+        self._visible = True
 
         for screen in app.screens():
             self._add_screen(screen)
@@ -222,7 +256,7 @@ class OverlayManager(QtCore.QObject):
 
     def _add_screen(self, screen: QtGui.QScreen) -> None:
         overlay = WatermarkOverlay(self._settings, screen)
-        overlay.show()
+        overlay.setVisible(self._visible)
         self._overlays[screen] = overlay
 
     def _remove_screen(self, screen: QtGui.QScreen) -> None:
@@ -230,6 +264,89 @@ class OverlayManager(QtCore.QObject):
         if overlay is not None:
             overlay.close()
             overlay.deleteLater()
+
+    def set_visible(self, visible: bool) -> None:
+        self._visible = visible
+        for overlay in self._overlays.values():
+            overlay.setVisible(visible)
+
+
+class AppListWatcher(QtCore.QObject):
+    """When settings["mode"] == "app_list", periodically checks (via
+    _NET_CLIENT_LIST) whether any currently open window's WM_CLASS
+    matches one of settings["apps"], and emits `matched` whenever that
+    verdict flips. In "always" mode it just emits matched(True) once.
+
+    This is deliberately poll-based rather than event-driven: EWMH
+    property-change events would need a dedicated Xlib event loop
+    thread interleaved with Qt's, which is more moving parts than a
+    prototype warrants. ~2 checks/sec is imperceptible overhead and
+    plenty responsive for "did the user just open a sensitive app".
+    """
+
+    matched = QtCore.pyqtSignal(bool)
+
+    def __init__(self, settings: LiveSettings, poll_ms: int = 500):
+        super().__init__()
+        self._settings = settings
+        self._display = None
+        if _HAS_XLIB:
+            try:
+                self._display = xlib_display.Display()
+            except Exception:
+                self._display = None
+        self._last_state: bool | None = None
+
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self.check)
+        self._timer.start(poll_ms)
+        # Deferred rather than called directly: `matched` has no
+        # listener yet at construction time (main() wires it up right
+        # after this returns), so an immediate emit here would be lost
+        # and the overlay would keep its initial visible-by-default
+        # state until the next poll tick.
+        QtCore.QTimer.singleShot(0, self.check)
+
+    def _open_window_identities(self) -> list[str]:
+        if not self._display:
+            return []
+        try:
+            root = self._display.screen().root
+            client_list_atom = self._display.intern_atom("_NET_CLIENT_LIST")
+            prop = root.get_full_property(client_list_atom, X.AnyPropertyType)
+            if not prop or not prop.value:
+                return []
+            identities = []
+            for win_id in prop.value:
+                try:
+                    window = self._display.create_resource_object("window", win_id)
+                    wm_class = window.get_wm_class()
+                    if wm_class:
+                        identities.append(" ".join(wm_class).lower())
+                except Exception:
+                    continue
+            return identities
+        except Exception:
+            return []
+
+    def check(self) -> None:
+        v = self._settings.values
+        if v.get("mode", "always") != "app_list":
+            visible = True
+        elif not self._display:
+            # No python-xlib / no X connection: can't evaluate the app
+            # list, so fail open (show the watermark) rather than risk
+            # silently hiding it forever.
+            visible = True
+        else:
+            apps = [a.lower() for a in v.get("apps", []) if a]
+            identities = self._open_window_identities()
+            visible = bool(apps) and any(
+                app in identity for identity in identities for app in apps
+            )
+        if visible != self._last_state:
+            self._last_state = visible
+            self.matched.emit(visible)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -248,6 +365,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--font-size", type=int, default=None, help="Point size")
     parser.add_argument("--angle", type=float, default=None, help="Tile rotation in degrees")
     parser.add_argument("--spacing", type=int, default=None, help="Gap between tiles in pixels")
+    parser.add_argument(
+        "--mode",
+        choices=["always", "app_list"],
+        default=None,
+        help="Show watermark always, or only while a listed app is open",
+    )
+    parser.add_argument(
+        "--apps",
+        default=None,
+        help="Comma-separated WM_CLASS substrings to match in app_list mode, e.g. 'soffice,acroread'",
+    )
+    parser.add_argument(
+        "--watermark-type",
+        choices=["text", "account"],
+        default=None,
+        dest="watermark_type",
+        help="'text' renders --text, 'account' always renders the OS account identity",
+    )
     return parser
 
 
@@ -264,9 +399,15 @@ def main() -> int:
             "font_size": args.font_size,
             "angle": args.angle,
             "spacing": args.spacing,
+            "mode": args.mode,
+            "apps": [a.strip() for a in args.apps.split(",") if a.strip()] if args.apps else None,
+            "watermark_type": args.watermark_type,
         },
     )
-    manager = OverlayManager(app, settings)  # noqa: F841 - keeps overlays alive
+    manager = OverlayManager(app, settings)
+    watcher = AppListWatcher(settings)  # noqa: F841 - keeps overlays/watcher alive
+    watcher.matched.connect(manager.set_visible)
+    settings.changed.connect(watcher.check)
     return app.exec_()
 
 

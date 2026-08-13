@@ -11,14 +11,14 @@ GNOME/KDE/XFCE/MATE и т.д. **для каждого пользователя �
 
 ## Установка
 
-Скопируйте `dist/watermark-overlay-0.1.0-1.noarch.rpm` на целевую машину
+Скопируйте `dist/watermark-overlay-0.2.0-1.noarch.rpm` на целевую машину
 и установите:
 
 ```bash
-sudo dnf install ./watermark-overlay-0.1.0-1.noarch.rpm
+sudo dnf install ./watermark-overlay-0.2.0-1.noarch.rpm
 ```
 
-(или `sudo rpm -ivh ./watermark-overlay-0.1.0-1.noarch.rpm`, если `dnf`
+(или `sudo rpm -ivh ./watermark-overlay-0.2.0-1.noarch.rpm`, если `dnf`
 недоступен).
 
 Пакет при установке (`%post`) сам проверит, есть ли `PyQt5`/`python-xlib`
@@ -51,13 +51,29 @@ sudo nano /etc/watermark-overlay/config.json
   "opacity": 45,
   "font_size": 18,
   "angle": -30.0,
-  "spacing": 80
+  "spacing": 80,
+  "watermark_type": "text",
+  "mode": "always",
+  "apps": []
 }
 ```
 
 Сохранили — у всех уже запущенных копий (у всех залогиненных
 пользователей) прозрачность/текст обновятся в течение секунды, без
-перезапуска. Подробнее про формат и `{user}`/`{host}`/`{time}` —
+перезапуска.
+
+Тем же файлом настраивается и **когда** показывать знак, и **что** на
+нём написано:
+- `"mode": "app_list"` + `"apps": ["soffice", "acroread", ...]` — знак
+  виден только пока открыто одно из перечисленных приложений (вместо
+  постоянного показа);
+- `"watermark_type": "account"` — вместо произвольного текста всегда
+  показывается учётная запись ОС (полное имя + `user@host`), её нельзя
+  случайно настроить так, чтобы она перестала показывать личность.
+
+Пример готового конфига для этого сценария —
+[`../../overlay/linux/config.example.app_list.json`](../../overlay/linux/config.example.app_list.json).
+Подробнее про формат и `{user}`/`{host}`/`{time}` —
 [`../../overlay/linux/README.md`](../../overlay/linux/README.md).
 
 > Если пользователь создаст свой `~/.config/watermark-overlay/config.json`,

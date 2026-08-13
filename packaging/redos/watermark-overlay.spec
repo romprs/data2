@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -21,9 +21,11 @@ keystrokes pass straight through to whatever is underneath.
 Installs system-wide via XDG autostart (/etc/xdg/autostart): a single
 `dnf install` on the machine makes the watermark appear automatically
 for every user who logs into a graphical session, no per-user setup.
-Text, opacity and the other visual settings are controlled centrally
-via /etc/watermark-overlay/config.json and apply live (no restart)
-to every running instance.
+Text, opacity and the other visual settings -- including whether the
+watermark always shows or only while a configured list of applications
+is open, and whether it renders free text or the OS account identity --
+are controlled centrally via /etc/watermark-overlay/config.json and
+apply live (no restart) to every running instance.
 
 %prep
 %setup -q
@@ -51,6 +53,13 @@ echo "watermark-overlay: edit /etc/watermark-overlay/config.json to change text/
 %config(noreplace) %{_sysconfdir}/watermark-overlay/config.json
 
 %changelog
+* Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.2.0-1
+- Add "mode" (always / app_list + "apps" WM_CLASS list) to show the
+  watermark only while selected applications are open, and
+  "watermark_type" (text / account) to switch between a free-text
+  template and the fixed OS account identity. Both are set centrally
+  in /etc/watermark-overlay/config.json and apply live.
+
 * Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.1.0-1
 - Initial system-wide RED OS package: XDG autostart for every user,
   shared /etc/watermark-overlay/config.json for centralized control

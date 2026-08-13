@@ -3,5 +3,8 @@
   "opacity": 45,
   "font_size": 18,
   "angle": -30.0,
-  "spacing": 80
+  "spacing": 80,
+  "watermark_type": "text",
+  "mode": "always",
+  "apps": []
 }

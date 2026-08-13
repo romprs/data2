@@ -1,0 +1,9 @@
+{
+  "opacity": 60,
+  "font_size": 18,
+  "angle": -30.0,
+  "spacing": 80,
+  "watermark_type": "account",
+  "mode": "app_list",
+  "apps": ["soffice", "libreoffice", "acroread", "okular", "evince", "firefox"]
+}
