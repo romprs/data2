@@ -7,4 +7,6 @@ Icon=security-high
 NoDisplay=true
 Terminal=false
 X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+X-KDE-autostart-phase=1
 Categories=System;

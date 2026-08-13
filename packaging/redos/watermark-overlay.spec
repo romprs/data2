@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -53,6 +53,21 @@ echo "watermark-overlay: edit /etc/watermark-overlay/config.json to change text/
 %config(noreplace) %{_sysconfdir}/watermark-overlay/config.json
 
 %changelog
+* Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.3.0-1
+- Add mode="none" as a central kill switch: set before launch and the
+  process exits without opening any window/X connection; flip it on an
+  already-running instance (e.g. by editing the shared /etc config)
+  and it quits within ~1s. Fixed two related bugs: a QApplication
+  created but never entering exec() could hang on shutdown (now
+  avoided by checking mode=="none" before creating QApplication at
+  all), and config files watched by QFileSystemWatcher were only
+  picked up if they existed at process start (now also watches each
+  config file's parent directory, so a config created after startup is
+  noticed too).
+- Autostart .desktop now sets X-GNOME-Autostart-Delay=0 and
+  X-KDE-autostart-phase=1 so no desktop environment artificially
+  delays the watermark after login.
+
 * Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.2.0-1
 - Add "mode" (always / app_list + "apps" WM_CLASS list) to show the
   watermark only while selected applications are open, and

@@ -11,14 +11,14 @@ GNOME/KDE/XFCE/MATE и т.д. **для каждого пользователя �
 
 ## Установка
 
-Скопируйте `dist/watermark-overlay-0.2.0-1.noarch.rpm` на целевую машину
+Скопируйте `dist/watermark-overlay-0.3.0-1.noarch.rpm` на целевую машину
 и установите:
 
 ```bash
-sudo dnf install ./watermark-overlay-0.2.0-1.noarch.rpm
+sudo dnf install ./watermark-overlay-0.3.0-1.noarch.rpm
 ```
 
-(или `sudo rpm -ivh ./watermark-overlay-0.2.0-1.noarch.rpm`, если `dnf`
+(или `sudo rpm -ivh ./watermark-overlay-0.3.0-1.noarch.rpm`, если `dnf`
 недоступен).
 
 Пакет при установке (`%post`) сам проверит, есть ли `PyQt5`/`python-xlib`
@@ -34,10 +34,15 @@ sudo python3 -m pip install PyQt5 python-xlib
 
 Дальше **никаких дополнительных действий не требуется** — при следующем
 входе в графическую (X11) сессию у любого пользователя автоматически
-запустится оверлей.
+запустится оверлей. Автозапуск идёт через `/etc/xdg/autostart` — это
+самый ранний кроссплатформенный (GNOME/KDE/XFCE/MATE) хук "запустить
+сразу при старте графической сессии", который вообще есть в
+freedesktop-стандарте; в `.desktop`-файле дополнительно выставлены
+`X-GNOME-Autostart-Delay=0` и `X-KDE-autostart-phase=1`, чтобы конкретная
+DE не откладывала запуск.
 
-Чтобы применить сразу, без перезахода — каждый пользователь может
-запустить вручную: `watermark-overlay &`.
+Чтобы применить сразу для уже открытой сессии, без перезахода — каждый
+пользователь может запустить вручную: `watermark-overlay &`.
 
 ## Настройка прозрачности для всех
 
@@ -67,12 +72,19 @@ sudo nano /etc/watermark-overlay/config.json
 - `"mode": "app_list"` + `"apps": ["soffice", "acroread", ...]` — знак
   виден только пока открыто одно из перечисленных приложений (вместо
   постоянного показа);
+- `"mode": "none"` — **аварийный выключатель для всех сразу**: если
+  задано до запуска — оверлей у пользователя не стартует вообще; если
+  переключить в этот режим у уже работающих копий (просто
+  отредактировав общий файл) — все они сами завершатся в течение
+  секунды, ничего перезапускать/останавливать вручную на каждой
+  учётке не нужно;
 - `"watermark_type": "account"` — вместо произвольного текста всегда
   показывается учётная запись ОС (полное имя + `user@host`), её нельзя
   случайно настроить так, чтобы она перестала показывать личность.
 
-Пример готового конфига для этого сценария —
-[`../../overlay/linux/config.example.app_list.json`](../../overlay/linux/config.example.app_list.json).
+Примеры готовых конфигов —
+[`config.example.app_list.json`](../../overlay/linux/config.example.app_list.json)
+и [`config.example.disabled.json`](../../overlay/linux/config.example.disabled.json).
 Подробнее про формат и `{user}`/`{host}`/`{time}` —
 [`../../overlay/linux/README.md`](../../overlay/linux/README.md).
 

@@ -20,10 +20,15 @@ tweak --opacity) updates the on-screen watermark within ~1s, no restart
 needed -- handy when running this under systemd.
 
 Two settings control *when* and *what* is shown:
-  - "mode": "always" (default) shows the watermark all the time, or
+  - "mode": "always" (default) shows the watermark all the time,
     "app_list" shows it only while one of the "apps" substrings matches
     the WM_CLASS of any currently open window (checked ~2x/sec via
-    _NET_CLIENT_LIST; requires python-xlib and an EWMH window manager).
+    _NET_CLIENT_LIST; requires python-xlib and an EWMH window manager),
+    or "none" disables it entirely -- if set at launch the process exits
+    immediately without creating any window; if set while already
+    running (e.g. an admin editing the shared /etc config), the running
+    process quits within ~1s. This is the kill switch: no watermark
+    process ends up running at all, rather than just an invisible one.
   - "watermark_type": "text" (default) renders the "text" template, or
     "account" ignores "text" and always renders the OS account identity
     (full name from /etc/passwd GECOS if set, else "user@host").
@@ -60,7 +65,7 @@ HARD_DEFAULTS = {
     "angle": -30.0,
     "spacing": 80,
     "watermark_type": "text",  # "text" | "account"
-    "mode": "always",  # "always" | "app_list"
+    "mode": "always",  # "always" | "app_list" | "none"
     "apps": [],  # WM_CLASS substrings used when mode == "app_list"
 }
 
@@ -115,6 +120,33 @@ def _pin_to_all_desktops(win_id: int) -> None:
         pass
 
 
+def _candidate_config_paths(explicit_config: str | None) -> list[Path]:
+    if explicit_config:
+        return [Path(explicit_config)]
+    return [SYSTEM_CONFIG_PATH, USER_CONFIG_PATH]
+
+
+def resolve_settings(explicit_config: str | None, cli_overrides: dict) -> dict:
+    """Merges built-in defaults, config file(s) and CLI overrides into
+    the effective settings dict. Deliberately plain (no Qt/PyQt5 use)
+    so it can be called before a QApplication exists -- main() needs
+    that to decide whether to start Qt/X11 at all when mode == "none".
+    """
+    file_values: dict = {}
+    for path in _candidate_config_paths(explicit_config):
+        if not path.is_file():
+            continue
+        try:
+            file_values.update(json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"watermark-overlay: skipping bad config {path}: {exc}", file=sys.stderr)
+
+    values = dict(HARD_DEFAULTS)
+    values.update({k: v for k, v in file_values.items() if k in HARD_DEFAULTS})
+    values.update({k: v for k, v in cli_overrides.items() if v is not None})
+    return values
+
+
 class LiveSettings(QtCore.QObject):
     """Holds the effective settings dict and reloads it whenever the
     backing config file(s) change on disk, so opacity/text/etc. can be
@@ -124,44 +156,42 @@ class LiveSettings(QtCore.QObject):
 
     def __init__(self, explicit_config: str | None, cli_overrides: dict):
         super().__init__()
-        self._explicit_config = Path(explicit_config) if explicit_config else None
-        self._cli_overrides = {k: v for k, v in cli_overrides.items() if v is not None}
+        self._explicit_config = explicit_config
+        self._cli_overrides = cli_overrides
         self.values = dict(HARD_DEFAULTS)
 
         self._watcher = QtCore.QFileSystemWatcher()
-        for path in self._candidate_paths():
-            if path.is_file():
-                self._watcher.addPath(str(path))
-        self._watcher.fileChanged.connect(self._on_file_changed)
+        self._watcher.fileChanged.connect(self._on_change)
+        self._watcher.directoryChanged.connect(self._on_change)
+        self._arm_watches()
 
         self.reload()
 
-    def _candidate_paths(self) -> list[Path]:
-        if self._explicit_config:
-            return [self._explicit_config]
-        return [SYSTEM_CONFIG_PATH, USER_CONFIG_PATH]
+    def _arm_watches(self) -> None:
+        # QFileSystemWatcher can only watch paths that already exist, so
+        # a config file created *after* this process started would
+        # never be noticed by fileChanged alone. Watching each config
+        # file's parent directory too catches that: creating/renaming a
+        # file into an already-watched directory fires
+        # directoryChanged, which re-runs this and picks up the new
+        # file for direct watching from then on. (If neither the file
+        # nor its parent directory exists yet at all, there is still
+        # nothing to watch -- a known gap for that edge case.)
+        watched_files = set(self._watcher.files())
+        watched_dirs = set(self._watcher.directories())
+        for path in _candidate_config_paths(self._explicit_config):
+            if path.is_file() and str(path) not in watched_files:
+                self._watcher.addPath(str(path))
+            parent = path.parent
+            if parent.is_dir() and str(parent) not in watched_dirs:
+                self._watcher.addPath(str(parent))
 
     def reload(self) -> None:
-        file_values: dict = {}
-        for path in self._candidate_paths():
-            if not path.is_file():
-                continue
-            try:
-                file_values.update(json.loads(path.read_text()))
-            except (OSError, json.JSONDecodeError) as exc:
-                print(f"watermark-overlay: skipping bad config {path}: {exc}", file=sys.stderr)
+        self.values = resolve_settings(self._explicit_config, self._cli_overrides)
 
-        values = dict(HARD_DEFAULTS)
-        values.update({k: v for k, v in file_values.items() if k in HARD_DEFAULTS})
-        values.update(self._cli_overrides)
-        self.values = values
-
-    def _on_file_changed(self, path: str) -> None:
+    def _on_change(self, _path: str) -> None:
         self.reload()
-        # Editors commonly save via unlink+rename, which drops the old
-        # inode from the watch list -- re-arm if the path still exists.
-        if Path(path).is_file() and path not in self._watcher.files():
-            self._watcher.addPath(path)
+        self._arm_watches()
         self.changed.emit()
 
 
@@ -331,7 +361,13 @@ class AppListWatcher(QtCore.QObject):
 
     def check(self) -> None:
         v = self._settings.values
-        if v.get("mode", "always") != "app_list":
+        mode = v.get("mode", "always")
+        if mode == "none":
+            # Belt-and-braces: main() also quits the whole process when
+            # mode flips to "none" live, but hiding immediately here
+            # avoids a visible flash in the moment before that happens.
+            visible = False
+        elif mode != "app_list":
             visible = True
         elif not self._display:
             # No python-xlib / no X connection: can't evaluate the app
@@ -367,9 +403,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--spacing", type=int, default=None, help="Gap between tiles in pixels")
     parser.add_argument(
         "--mode",
-        choices=["always", "app_list"],
+        choices=["always", "app_list", "none"],
         default=None,
-        help="Show watermark always, or only while a listed app is open",
+        help="Show watermark always, only while a listed app is open, or 'none' to disable/not start at all",
     )
     parser.add_argument(
         "--apps",
@@ -388,26 +424,44 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_arg_parser().parse_args()
+    cli_overrides = {
+        "text": args.text,
+        "opacity": args.opacity,
+        "font_size": args.font_size,
+        "angle": args.angle,
+        "spacing": args.spacing,
+        "mode": args.mode,
+        "apps": [a.strip() for a in args.apps.split(",") if a.strip()] if args.apps else None,
+        "watermark_type": args.watermark_type,
+    }
+
+    if resolve_settings(args.config, cli_overrides).get("mode") == "none":
+        # Config already says "off" at launch: exit before touching Qt
+        # or X11 at all -- this is the literal "daemon doesn't start"
+        # case, not just an invisible/idle process.
+        print("watermark-overlay: mode=none in config, not starting.", file=sys.stderr)
+        return 0
+
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    settings = LiveSettings(explicit_config=args.config, cli_overrides=cli_overrides)
 
-    settings = LiveSettings(
-        explicit_config=args.config,
-        cli_overrides={
-            "text": args.text,
-            "opacity": args.opacity,
-            "font_size": args.font_size,
-            "angle": args.angle,
-            "spacing": args.spacing,
-            "mode": args.mode,
-            "apps": [a.strip() for a in args.apps.split(",") if a.strip()] if args.apps else None,
-            "watermark_type": args.watermark_type,
-        },
-    )
     manager = OverlayManager(app, settings)
     watcher = AppListWatcher(settings)  # noqa: F841 - keeps overlays/watcher alive
     watcher.matched.connect(manager.set_visible)
     settings.changed.connect(watcher.check)
+
+    def _quit_if_disabled() -> None:
+        # Config flipped to "off" while already running (e.g. an admin
+        # editing the shared /etc config as a kill switch): actually
+        # stop the process, not just hide the window, so re-enabling
+        # later means flipping the config back rather than relying on
+        # a process that's still silently running.
+        if settings.values.get("mode") == "none":
+            print("watermark-overlay: mode changed to none, exiting.", file=sys.stderr)
+            app.quit()
+
+    settings.changed.connect(_quit_if_disabled)
     return app.exec_()
 
 
