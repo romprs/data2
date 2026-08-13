@@ -6,6 +6,7 @@
 
 - Общий план и архитектура: [`PROJECT_PLAN.md`](PROJECT_PLAN.md)
 - Экранный оверлей (Linux/X11, Этап 0-1, реализовано): [`overlay/linux/`](overlay/linux/)
+- RPM-пакет для РЕД ОС / RHEL-совместимых систем (системная установка для всех пользователей): [`packaging/redos/`](packaging/redos/)
 - Тесты: [`tests/linux/`](tests/linux/)
 
 ## Статус разработки
@@ -13,16 +14,23 @@
 | Этап | Модуль | Статус |
 |---|---|---|
 | 0-1 | Экранный оверлей — Linux/X11 | ✅ прототип реализован, покрыт smoke-тестом |
+| 0-1 | Системная установка (RPM, РЕД ОС/RHEL) | ✅ пакет собирается и ставится для всех пользователей |
 | 0-1 | Экранный оверлей — Windows | ⏳ не начато |
 | 0-1 | Экранный оверлей — macOS | ⏳ не начато |
 | 2 | Перехват печати | ⏳ не начато |
 | 3 | Сервер политик/аудита | ⏳ не начато |
 
-## Быстрый старт (Linux)
+## Быстрый старт
 
+**Вручную (для себя, любой Linux):**
 ```bash
-sudo apt-get install -y python3-pyqt5 python3-xlib
+pip3 install --user PyQt5 python-xlib
 python3 overlay/linux/watermark_overlay.py
 ```
-
 Подробности — в [`overlay/linux/README.md`](overlay/linux/README.md).
+
+**Системно для всех пользователей (РЕД ОС / RHEL-совместимые):**
+```bash
+sudo dnf install ./watermark-overlay-0.1.0-1.noarch.rpm
+```
+Собрать пакет из исходников и подробности — в [`packaging/redos/README.md`](packaging/redos/README.md).

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Screen Watermark
+Comment=Overlays the logged-in user's name across the screen (anti-leak watermark)
+Exec=/usr/bin/watermark-overlay
+Icon=security-high
+NoDisplay=true
+Terminal=false
+X-GNOME-Autostart-enabled=true
+Categories=System;
