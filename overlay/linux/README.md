@@ -41,6 +41,44 @@ python3 watermark_overlay.py
 
 Пример: `python3 watermark_overlay.py --text "{user} · {time}" --opacity 60`
 
+## Управление прозрачностью и остальными настройками (конфиг-файл)
+
+Вместо CLI-флагов настройки можно хранить в JSON-файле — это то, чем
+удобно управлять при запуске как службы (см. ниже), не трогая unit-файл.
+Порядок приоритета (следующий переопределяет предыдущий):
+
+1. встроенные значения по умолчанию;
+2. `/etc/watermark-overlay/config.json` — системный дефолт (опционально,
+   для централизованной настройки администратором);
+3. `~/.config/watermark-overlay/config.json` — пользовательский;
+4. `--config PATH`, если указан явно (тогда 2 и 3 игнорируются);
+5. соответствующие CLI-флаги (`--opacity` и т.д.), если переданы.
+
+Формат — см. [`config.example.json`](config.example.json):
+
+```json
+{
+  "text": "{user}",
+  "opacity": 45,
+  "font_size": 18,
+  "angle": -30.0,
+  "spacing": 80
+}
+```
+
+Создать пользовательский конфиг:
+
+```bash
+mkdir -p ~/.config/watermark-overlay
+cp config.example.json ~/.config/watermark-overlay/config.json
+```
+
+**Изменения применяются на лету**, без перезапуска процесса: оверлей
+следит за конфиг-файлом (`QFileSystemWatcher`) и перерисовывается
+в течение примерно секунды после сохранения файла. Чтобы сделать знак
+заметнее/незаметнее — просто отредактируйте `opacity` (0-255) в
+конфиге и сохраните.
+
 ## Как это работает
 
 - Окно создаётся с флагами `FramelessWindowHint | WindowStaysOnTopHint |
@@ -79,12 +117,35 @@ python3 watermark_overlay.py
 
 ## Автозапуск (systemd user service)
 
+Юнит запускает `watermark_overlay.py` без флагов — все настройки берутся
+из конфиг-файла (см. выше), путь к репозиторию задан относительно `%h`
+(домашняя директория) — поправьте `ExecStart` в
+[`systemd/watermark-overlay.service`](systemd/watermark-overlay.service),
+если склонировали в другое место.
+
 ```bash
 mkdir -p ~/.config/systemd/user
 cp systemd/watermark-overlay.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now watermark-overlay.service
 ```
+
+Проверить статус / логи:
+
+```bash
+systemctl --user status watermark-overlay.service
+journalctl --user -u watermark-overlay.service -f
+```
+
+Изменить прозрачность у запущенной как служба копии — просто
+отредактировать `~/.config/watermark-overlay/config.json`, перезапуск
+не требуется (см. "Управление прозрачностью" выше).
+
+> На некоторых DE user-юниты с `WantedBy=graphical-session.target` не
+> подхватывают DISPLAY/XAUTHORITY автоматически. Если служба падает с
+> ошибкой подключения к X-серверу — добавьте в `[Service]`:
+> `Environment=DISPLAY=:0` (или актуальный вывод `echo $DISPLAY` в вашей
+> сессии).
 
 ## Тесты
 
