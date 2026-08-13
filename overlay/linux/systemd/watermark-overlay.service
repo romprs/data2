@@ -1,0 +1,14 @@
+[Unit]
+Description=Screen watermark overlay (anti-leak)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# Adjust the path if the repo is checked out elsewhere.
+ExecStart=/usr/bin/python3 %h/data2/overlay/linux/watermark_overlay.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
