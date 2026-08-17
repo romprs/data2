@@ -1,2 +1,16 @@
 #!/bin/sh
-exec python3 /usr/share/watermark-overlay/watermark_overlay.py "$@"
+# Basic anti-tamper (PROJECT_PLAN.md section 6): restart the overlay if
+# it's killed or crashes, so a user closing the process doesn't leave
+# the screen permanently unwatermarked until next login. Exit code 0
+# means a *deliberate* stop -- mode=none in config, or a clean Qt quit
+# (watermark_overlay.py returns 0 for both) -- and is respected as
+# "stay off"; any other exit (SIGTERM/SIGKILL/crash gives 128+signal, or
+# a nonzero Python traceback exit) restarts after a short delay instead.
+while true; do
+    python3 /usr/share/watermark-overlay/watermark_overlay.py "$@"
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        exit 0
+    fi
+    sleep 2
+done

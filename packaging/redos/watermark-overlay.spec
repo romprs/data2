@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.4.1
+Version:        0.5.0
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -10,6 +10,7 @@ Source0:        %{name}-%{version}.tar.gz
 
 Requires:       python3
 Requires:       python3-pip
+Requires(post): shadow-utils
 
 %description
 Draws a full-screen, click-through, always-on-top watermark tiling the
@@ -63,8 +64,25 @@ if [ ! -s %{_sysconfdir}/watermark-overlay/watermark.key ]; then
     else
         python3 -c "import secrets; open('%{_sysconfdir}/watermark-overlay/watermark.key','wb').write(secrets.token_bytes(32))"
     fi
-    chmod 0644 %{_sysconfdir}/watermark-overlay/watermark.key
 fi
+# The key was previously 0644 (world-readable) because the overlay
+# reads it while running as the logged-in user, not root. That let ANY
+# local account read it, not just interactively-logging-in humans --
+# service/system accounts included, with zero legitimate need to. Move
+# it to a dedicated group and add existing local human accounts
+# (UID >= 1000, the standard RED OS/RHEL cutoff for real users) to it;
+# 0644 -> 0640 narrows exposure but does not fully close it -- see the
+# "Честно про хранение ключа" note in overlay/linux/README.md for what
+# would (a privileged component doing the encryption instead of the
+# user's own process). Known gap: this local-group step does not reach
+# AD/SSO-joined accounts, which do not exist in /etc/passwd at install
+# time -- flagged as an open question in PROJECT_PLAN.md section 11.
+getent group watermark-overlay >/dev/null || groupadd -r watermark-overlay
+chgrp watermark-overlay %{_sysconfdir}/watermark-overlay/watermark.key
+chmod 0640 %{_sysconfdir}/watermark-overlay/watermark.key
+awk -F: '$3>=1000 && $3<60000 {print $1}' /etc/passwd | while read -r u; do
+    usermod -aG watermark-overlay "$u" 2>/dev/null || true
+done
 echo "watermark-overlay: installed. It will start automatically the next time each user logs into a graphical (X11) session."
 echo "watermark-overlay: edit /etc/watermark-overlay/config.json to change settings for everyone (applies live, no restart needed)."
 echo "watermark-overlay: to decode a watermark_type=dots screenshot later: watermark-decode SCREENSHOT.png"
@@ -77,9 +95,31 @@ echo "watermark-overlay: to decode a watermark_type=dots screenshot later: water
 %{_bindir}/watermark-decode
 %{_sysconfdir}/xdg/autostart/watermark-overlay.desktop
 %config(noreplace) %{_sysconfdir}/watermark-overlay/config.json
-%ghost %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
+%ghost %attr(0640, root, watermark-overlay) %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
 
 %changelog
+* Mon Aug 17 2026 Watermark Project <noreply@example.com> - 0.5.0-1
+- Security: the overlay no longer just dies when killed -- the
+  %{_bindir}/watermark-overlay wrapper is now a restart loop (basic
+  anti-tamper, PROJECT_PLAN.md section 6). Verified this was a real
+  gap, not theoretical: on a real RED OS VM, `kill <pid>` on the
+  previously-installed 0.2.0 build left no watermark process running
+  at all until next login -- the systemd unit in overlay/linux/systemd/
+  that would have restarted it was never actually packaged/installed by
+  this RPM. mode=none (exit code 0) is still respected as a deliberate
+  stop, not treated as a crash to restart from.
+- Security: watermark.key moved from 0644 (world-readable by any local
+  account) to 0640, owned by a new dedicated `watermark-overlay` group
+  that existing local human accounts (UID 1000-59999) are added to at
+  install. Narrows exposure to accounts with a legitimate reason to
+  read it (interactive graphical users, who need it to encode) instead
+  of every local account including system/service ones. Does not fully
+  close the key-confidentiality gap already documented in
+  overlay/linux/README.md -- that needs a privileged-helper redesign,
+  and this local-group mechanism does not reach AD/SSO-joined accounts
+  (see PROJECT_PLAN.md section 11). Users added to the group need to
+  log out/in once for the new group membership to take effect.
+
 * Mon Aug 17 2026 Watermark Project <noreply@example.com> - 0.4.1-1
 - Fix decode_dots.py: the bit threshold used a median split assuming
   roughly 50/50 ones-vs-zeros per capture, which silently misdecoded
