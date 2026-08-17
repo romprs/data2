@@ -11,14 +11,14 @@ GNOME/KDE/XFCE/MATE и т.д. **для каждого пользователя �
 
 ## Установка
 
-Скопируйте `dist/watermark-overlay-0.3.0-1.noarch.rpm` на целевую машину
+Скопируйте `dist/watermark-overlay-0.3.1-1.noarch.rpm` на целевую машину
 и установите:
 
 ```bash
-sudo dnf install ./watermark-overlay-0.3.0-1.noarch.rpm
+sudo dnf install ./watermark-overlay-0.3.1-1.noarch.rpm
 ```
 
-(или `sudo rpm -ivh ./watermark-overlay-0.3.0-1.noarch.rpm`, если `dnf`
+(или `sudo rpm -ivh ./watermark-overlay-0.3.1-1.noarch.rpm`, если `dnf`
 недоступен).
 
 Пакет при установке (`%post`) сам проверит, есть ли `PyQt5`/`python-xlib`

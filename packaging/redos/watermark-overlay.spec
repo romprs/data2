@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -53,6 +53,18 @@ echo "watermark-overlay: edit /etc/watermark-overlay/config.json to change text/
 %config(noreplace) %{_sysconfdir}/watermark-overlay/config.json
 
 %changelog
+* Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.3.1-1
+- Disable Qt's GLX/EGL probing (QT_XCB_GL_INTEGRATION=none) since the
+  overlay never uses OpenGL -- on machines without a hardware GL driver
+  wired up for the X session (common on minimal/server installs) that
+  probe was falling back to Mesa's software rasterizer and pulling in
+  libLLVM.so, roughly doubling the process's memory footprint.
+  Measured: RSS dropped from ~115MB to ~61MB. Set from inside the
+  script itself (os.environ.setdefault, so it applies no matter how
+  the process is launched) rather than in the unit/desktop file, and
+  an operator can still override it by setting the env var explicitly
+  before launch.
+
 * Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.3.0-1
 - Add mode="none" as a central kill switch: set before launch and the
   process exits without opening any window/X connection; flip it on an

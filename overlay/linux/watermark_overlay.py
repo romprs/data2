@@ -43,11 +43,23 @@ Run:
 import argparse
 import getpass
 import json
+import os
 import pwd
 import socket
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# The overlay is a plain 2D-painted window -- it never uses OpenGL --
+# but Qt's xcb platform plugin probes GLX/EGL anyway when it starts up.
+# On a machine without a hardware GL driver set up for the X session
+# (common on minimal/server installs, and always true under Xvfb) that
+# probe falls back to Mesa's software rasterizer, which drags in
+# libLLVM.so -- alone responsible for roughly half this process's RSS
+# (measured: ~115MB with GL integration vs ~61MB with it disabled).
+# setdefault() so an operator who *does* want GL integration for some
+# reason can still override it by setting the env var before launch.
+os.environ.setdefault("QT_XCB_GL_INTEGRATION", "none")
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
