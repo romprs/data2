@@ -1,2 +1,7 @@
 PyQt5>=5.15
 python-xlib>=0.33
+# Only needed for watermark_type=dots (encoding) and decode_dots.py (decoding):
+cryptography>=41
+# Only needed for decode_dots.py:
+numpy>=1.24
+Pillow>=10.0

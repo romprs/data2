@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.3.1
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -33,7 +33,10 @@ apply live (no restart) to every running instance.
 %install
 rm -rf %{buildroot}
 install -Dm755 watermark_overlay.py %{buildroot}%{_datadir}/watermark-overlay/watermark_overlay.py
+install -Dm644 dotcode.py %{buildroot}%{_datadir}/watermark-overlay/dotcode.py
+install -Dm755 decode_dots.py %{buildroot}%{_datadir}/watermark-overlay/decode_dots.py
 install -Dm755 watermark-overlay.wrapper %{buildroot}%{_bindir}/watermark-overlay
+install -Dm755 watermark-decode.wrapper %{buildroot}%{_bindir}/watermark-decode
 install -Dm644 watermark-overlay.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/watermark-overlay.desktop
 install -Dm644 config.json %{buildroot}%{_sysconfdir}/watermark-overlay/config.json
 
@@ -43,16 +46,67 @@ if ! python3 -c "import PyQt5, Xlib" >/dev/null 2>&1; then
     python3 -m pip install --quiet PyQt5 python-xlib || \
         echo "watermark-overlay: WARNING - could not auto-install PyQt5/python-xlib via pip (no network access at install time?). Install manually, e.g.: dnf install python3-qt5 python3-xlib   -- or --   python3 -m pip install PyQt5 python-xlib" >&2
 fi
+if ! python3 -c "import cryptography" >/dev/null 2>&1; then
+    echo "watermark-overlay: installing Python dependency (cryptography, for watermark_type=dots)..."
+    python3 -m pip install --quiet cryptography || \
+        echo "watermark-overlay: WARNING - could not auto-install cryptography via pip. watermark_type=dots will not work until you: python3 -m pip install cryptography" >&2
+fi
+if ! python3 -c "import numpy, PIL" >/dev/null 2>&1; then
+    echo "watermark-overlay: installing Python dependencies (numpy, Pillow, for watermark-decode)..."
+    python3 -m pip install --quiet numpy Pillow || \
+        echo "watermark-overlay: WARNING - could not auto-install numpy/Pillow via pip. 'watermark-decode' will not work until you: python3 -m pip install numpy Pillow" >&2
+fi
+if [ ! -s %{_sysconfdir}/watermark-overlay/watermark.key ]; then
+    echo "watermark-overlay: generating AES-256 key for watermark_type=dots at %{_sysconfdir}/watermark-overlay/watermark.key ..."
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -out %{_sysconfdir}/watermark-overlay/watermark.key 32
+    else
+        python3 -c "import secrets; open('%{_sysconfdir}/watermark-overlay/watermark.key','wb').write(secrets.token_bytes(32))"
+    fi
+    chmod 0644 %{_sysconfdir}/watermark-overlay/watermark.key
+fi
 echo "watermark-overlay: installed. It will start automatically the next time each user logs into a graphical (X11) session."
-echo "watermark-overlay: edit /etc/watermark-overlay/config.json to change text/opacity for everyone (applies live, no restart needed)."
+echo "watermark-overlay: edit /etc/watermark-overlay/config.json to change settings for everyone (applies live, no restart needed)."
+echo "watermark-overlay: to decode a watermark_type=dots screenshot later: watermark-decode SCREENSHOT.png"
 
 %files
 %{_datadir}/watermark-overlay/watermark_overlay.py
+%{_datadir}/watermark-overlay/dotcode.py
+%{_datadir}/watermark-overlay/decode_dots.py
 %{_bindir}/watermark-overlay
+%{_bindir}/watermark-decode
 %{_sysconfdir}/xdg/autostart/watermark-overlay.desktop
 %config(noreplace) %{_sysconfdir}/watermark-overlay/config.json
+%ghost %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
 
 %changelog
+* Mon Aug 17 2026 Watermark Project <noreply@example.com> - 0.4.1-1
+- Fix decode_dots.py: the bit threshold used a median split assuming
+  roughly 50/50 ones-vs-zeros per capture, which silently misdecoded
+  whenever a specific ciphertext's actual ratio skewed enough that the
+  median landed on a tied value (found by testing -- failed on some
+  renders, not others). Each dot/no-dot delta is genuinely one of only
+  two values, so the fix uses the midpoint between that candidate's own
+  min and max delta instead, which is correct regardless of the bit
+  ratio. Verified with 5 consecutive fresh-key end-to-end runs after
+  the fix, all passing (previously reproducible intermittently).
+
+* Mon Aug 17 2026 Watermark Project <noreply@example.com> - 0.4.0-1
+- Add watermark_type="dots": instead of readable text, encodes
+  username+timestamp as AES-256-GCM ciphertext tiled as a faint dot
+  pattern -- addresses two concerns: it's less distracting than
+  readable text, and (unlike readable text, or an unencrypted dot
+  pattern) it can't be casually read or forged, only decoded offline
+  with the shared key via the new `watermark-decode` tool
+  (decode_dots.py). Key auto-generated at
+  /etc/watermark-overlay/watermark.key on install if missing.
+  Verified end-to-end under Xvfb: render -> screenshot (full and an
+  arbitrary off-grid crop) -> decode recovers the correct user; wrong
+  key fails cleanly. NOT verified against real phone photos (only
+  pixel-perfect screenshots) -- perspective distortion, screen-camera
+  moire and lighting are a separate, harder problem needing real
+  hardware to test, flagged as unproven in the docs.
+
 * Thu Aug 13 2026 Watermark Project <noreply@example.com> - 0.3.1-1
 - Disable Qt's GLX/EGL probing (QT_XCB_GL_INTEGRATION=none) since the
   overlay never uses OpenGL -- on machines without a hardware GL driver

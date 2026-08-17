@@ -29,16 +29,24 @@ Two settings control *when* and *what* is shown:
     running (e.g. an admin editing the shared /etc config), the running
     process quits within ~1s. This is the kill switch: no watermark
     process ends up running at all, rather than just an invisible one.
-  - "watermark_type": "text" (default) renders the "text" template, or
+  - "watermark_type": "text" (default) renders the "text" template,
     "account" ignores "text" and always renders the OS account identity
-    (full name from /etc/passwd GECOS if set, else "user@host").
+    (full name from /etc/passwd GECOS if set, else "user@host"), or
+    "dots" renders no readable text at all: username+timestamp are
+    AES-GCM-encrypted with the key at "key_file" (default
+    /etc/watermark-overlay/watermark.key) and tiled as a faint dot
+    pattern instead -- decodable offline with decode_dots.py and the
+    same key, but nothing a casual viewer (or a generic "erase the
+    watermark text" tool) can read directly off the screen. See
+    dotcode.py for the wire format.
 
 Run:
     python3 watermark_overlay.py [--config PATH] [--text TEMPLATE]
                                   [--opacity 0-255] [--font-size PX]
                                   [--angle DEG] [--spacing PX]
                                   [--mode always|app_list] [--apps A,B,C]
-                                  [--watermark-type text|account]
+                                  [--watermark-type text|account|dots]
+                                  [--dot-size PX] [--key-file PATH]
 """
 import argparse
 import getpass
@@ -70,15 +78,19 @@ try:
 except ImportError:
     _HAS_XLIB = False
 
+import dotcode
+
 HARD_DEFAULTS = {
     "text": "{user}",
     "opacity": 45,
     "font_size": 18,
     "angle": -30.0,
     "spacing": 80,
-    "watermark_type": "text",  # "text" | "account"
+    "watermark_type": "text",  # "text" | "account" | "dots"
     "mode": "always",  # "always" | "app_list" | "none"
     "apps": [],  # WM_CLASS substrings used when mode == "app_list"
+    "dot_size": 3,  # dot diameter in px, used when watermark_type == "dots"
+    "key_file": None,  # None -> dotcode.DEFAULT_KEY_PATH; used when watermark_type == "dots"
 }
 
 
@@ -248,7 +260,13 @@ class WatermarkOverlay(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
+        if v.get("watermark_type") == "dots":
+            self._paint_dots(painter, v)
+        else:
+            self._paint_text(painter, v)
+        painter.end()
 
+    def _paint_text(self, painter: QtGui.QPainter, v: dict) -> None:
         font = QtGui.QFont("DejaVu Sans", v["font_size"], QtGui.QFont.DemiBold)
         painter.setFont(font)
         painter.setPen(QtGui.QColor(110, 110, 110, v["opacity"]))
@@ -273,7 +291,43 @@ class WatermarkOverlay(QtWidgets.QWidget):
                 painter.drawText(x, y, text)
                 x += step_x
             y += step_y
-        painter.end()
+
+    def _paint_dots(self, painter: QtGui.QPainter, v: dict) -> None:
+        key = dotcode.load_key(v.get("key_file"))
+        if key is None:
+            # No key available -> nothing decodable could be rendered
+            # anyway; fail closed (draw nothing) rather than guess.
+            # main() warns about this once at startup so it isn't
+            # silently invisible without explanation in the logs.
+            return
+
+        import time as _time  # local: only the paint path needs it
+
+        blob = dotcode.encrypt_identity(getpass.getuser(), int(_time.time()), key)
+        bits = dotcode.bytes_to_bits(blob)
+        dot_size = v.get("dot_size", 3)
+        cells = dotcode.grid_cell_positions(dot_size)
+        tile_w, tile_h = dotcode.tile_size(dot_size)
+        step_x = tile_w + v["spacing"]
+        step_y = tile_h + v["spacing"]
+
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrush(QtGui.QColor(110, 110, 110, v["opacity"]))
+
+        # No rotation here (unlike text mode): the decoder needs to
+        # know exactly where each tile's grid cells are, and an
+        # unrotated, axis-aligned grid keeps that a simple, fast
+        # brute-force search over one tile period instead of also
+        # having to search rotation angles.
+        y = 0
+        while y < self.height():
+            x = 0
+            while x < self.width():
+                for bit, (dx, dy) in zip(bits, cells):
+                    if bit:
+                        painter.drawEllipse(x + dx, y + dy, dot_size, dot_size)
+                x += step_x
+            y += step_y
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         super().showEvent(event)
@@ -426,10 +480,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--watermark-type",
-        choices=["text", "account"],
+        choices=["text", "account", "dots"],
         default=None,
         dest="watermark_type",
-        help="'text' renders --text, 'account' always renders the OS account identity",
+        help="'text' renders --text, 'account' the OS identity, 'dots' an encrypted dot code",
+    )
+    parser.add_argument(
+        "--dot-size", type=int, default=None, dest="dot_size", help="Dot diameter in px (mode=dots)"
+    )
+    parser.add_argument(
+        "--key-file",
+        default=None,
+        dest="key_file",
+        help=f"AES-256 key file for mode=dots (default: {dotcode.DEFAULT_KEY_PATH})",
     )
     return parser
 
@@ -445,14 +508,26 @@ def main() -> int:
         "mode": args.mode,
         "apps": [a.strip() for a in args.apps.split(",") if a.strip()] if args.apps else None,
         "watermark_type": args.watermark_type,
+        "dot_size": args.dot_size,
+        "key_file": args.key_file,
     }
 
-    if resolve_settings(args.config, cli_overrides).get("mode") == "none":
+    initial = resolve_settings(args.config, cli_overrides)
+    if initial.get("mode") == "none":
         # Config already says "off" at launch: exit before touching Qt
         # or X11 at all -- this is the literal "daemon doesn't start"
         # case, not just an invisible/idle process.
         print("watermark-overlay: mode=none in config, not starting.", file=sys.stderr)
         return 0
+    if initial.get("watermark_type") == "dots" and dotcode.load_key(initial.get("key_file")) is None:
+        key_path = initial.get("key_file") or dotcode.DEFAULT_KEY_PATH
+        print(
+            f"watermark-overlay: watermark_type=dots but no valid 32-byte key at {key_path} "
+            "-- the overlay will run but draw nothing until a key exists. "
+            "Generate one with: python3 -c \"import secrets,pathlib; "
+            f"pathlib.Path('{key_path}').write_bytes(secrets.token_bytes(32))\"",
+            file=sys.stderr,
+        )
 
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)

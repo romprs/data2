@@ -11,14 +11,14 @@ GNOME/KDE/XFCE/MATE и т.д. **для каждого пользователя �
 
 ## Установка
 
-Скопируйте `dist/watermark-overlay-0.3.1-1.noarch.rpm` на целевую машину
+Скопируйте `dist/watermark-overlay-0.4.1-1.noarch.rpm` на целевую машину
 и установите:
 
 ```bash
-sudo dnf install ./watermark-overlay-0.3.1-1.noarch.rpm
+sudo dnf install ./watermark-overlay-0.4.1-1.noarch.rpm
 ```
 
-(или `sudo rpm -ivh ./watermark-overlay-0.3.1-1.noarch.rpm`, если `dnf`
+(или `sudo rpm -ivh ./watermark-overlay-0.4.1-1.noarch.rpm`, если `dnf`
 недоступен).
 
 Пакет при установке (`%post`) сам проверит, есть ли `PyQt5`/`python-xlib`
@@ -80,11 +80,19 @@ sudo nano /etc/watermark-overlay/config.json
   учётке не нужно;
 - `"watermark_type": "account"` — вместо произвольного текста всегда
   показывается учётная запись ОС (полное имя + `user@host`), её нельзя
-  случайно настроить так, чтобы она перестала показывать личность.
+  случайно настроить так, чтобы она перестала показывать личность;
+- `"watermark_type": "dots"` — вообще без читаемого текста: логин и
+  время шифруются (AES-256-GCM) и рисуются точечным узором, который
+  расшифровывается только офлайн ключом `/etc/watermark-overlay/watermark.key`
+  (пакет генерирует его сам при установке, если отсутствует) —
+  подробности и как расшифровать скриншот/фото при расследовании
+  утечки через `watermark-decode` — в
+  [`../../overlay/linux/README.md`](../../overlay/linux/README.md#watermark_type-dots--зашифрованный-точечный-код-вместо-читаемого-текста).
 
 Примеры готовых конфигов —
-[`config.example.app_list.json`](../../overlay/linux/config.example.app_list.json)
-и [`config.example.disabled.json`](../../overlay/linux/config.example.disabled.json).
+[`config.example.app_list.json`](../../overlay/linux/config.example.app_list.json),
+[`config.example.disabled.json`](../../overlay/linux/config.example.disabled.json)
+и [`config.example.dots.json`](../../overlay/linux/config.example.dots.json).
 Подробнее про формат и `{user}`/`{host}`/`{time}` —
 [`../../overlay/linux/README.md`](../../overlay/linux/README.md).
 
@@ -116,9 +124,13 @@ bash build.sh
 | Путь на диске | Назначение |
 |---|---|
 | `/usr/share/watermark-overlay/watermark_overlay.py` | сам оверлей (копия [`overlay/linux/watermark_overlay.py`](../../overlay/linux/watermark_overlay.py)) |
-| `/usr/bin/watermark-overlay` | обёртка для запуска |
+| `/usr/share/watermark-overlay/dotcode.py` | общий модуль кодирования/шифрования для режима `dots` |
+| `/usr/share/watermark-overlay/decode_dots.py` | офлайн-декодер для режима `dots` |
+| `/usr/bin/watermark-overlay` | обёртка для запуска оверлея |
+| `/usr/bin/watermark-decode` | обёртка для запуска декодера (`watermark-decode SCREENSHOT.png`) |
 | `/etc/xdg/autostart/watermark-overlay.desktop` | автозапуск для всех пользователей при входе в графическую сессию |
 | `/etc/watermark-overlay/config.json` | общие настройки (помечен `%config(noreplace)` — при обновлении пакета ваши правки не затираются) |
+| `/etc/watermark-overlay/watermark.key` | AES-256 ключ для режима `dots`, генерируется автоматически при первой установке, если отсутствует |
 
 ## Ограничения (честно)
 
