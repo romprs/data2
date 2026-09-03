@@ -11,14 +11,14 @@ GNOME/KDE/XFCE/MATE и т.д. **для каждого пользователя �
 
 ## Установка
 
-Скопируйте `dist/watermark-overlay-0.5.0-1.red80.noarch.rpm` на целевую
+Скопируйте `dist/watermark-overlay-0.6.0-1.red80.noarch.rpm` на целевую
 машину и установите:
 
 ```bash
-sudo dnf install ./watermark-overlay-0.5.0-1.red80.noarch.rpm
+sudo dnf install ./watermark-overlay-0.6.0-1.red80.noarch.rpm
 ```
 
-(или `sudo rpm -ivh ./watermark-overlay-0.5.0-1.red80.noarch.rpm`, если
+(или `sudo rpm -ivh ./watermark-overlay-0.6.0-1.red80.noarch.rpm`, если
 `dnf` недоступен).
 
 Пакет при установке (`%post`) сам проверит, есть ли `PyQt5`/`python-xlib`
@@ -50,22 +50,35 @@ DE не откладывала запуск.
 sudo nano /etc/watermark-overlay/config.json
 ```
 
+С версии 0.6.0 пакет по умолчанию ставит **`dots`** (зашифрованный
+точечный код, не читаемый текст) — до этого дефолтом был `text`, но
+живое тестирование установки на реальной машине показало, что просто
+реализовать переключение мало: конфиг по умолчанию всё равно ставил
+`text`, и знак оставался читаемым, пока кто-то вручную не поменяет
+`watermark_type` в `/etc/watermark-overlay/config.json`. Теперь из
+коробки:
+
 ```json
 {
   "text": "{user}",
-  "opacity": 45,
+  "opacity": 60,
   "font_size": 18,
   "angle": -30.0,
   "spacing": 80,
-  "watermark_type": "text",
+  "watermark_type": "dots",
+  "dot_size": 3,
+  "key_file": "/etc/watermark-overlay/watermark.key",
   "mode": "always",
   "apps": []
 }
 ```
 
+Вернуться к читаемому тексту — просто поменять `"watermark_type":
+"dots"` обратно на `"text"` (поля `text`/`font_size`/`angle` для этого
+специально оставлены в файле, даже когда активен `dots`).
+
 Сохранили — у всех уже запущенных копий (у всех залогиненных
-пользователей) прозрачность/текст обновятся в течение секунды, без
-перезапуска.
+пользователей) настройки обновятся в течение секунды, без перезапуска.
 
 Тем же файлом настраивается и **когда** показывать знак, и **что** на
 нём написано:

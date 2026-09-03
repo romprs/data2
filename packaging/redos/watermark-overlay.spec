@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.5.0
+Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -42,20 +42,31 @@ install -Dm644 watermark-overlay.desktop %{buildroot}%{_sysconfdir}/xdg/autostar
 install -Dm644 config.json %{buildroot}%{_sysconfdir}/watermark-overlay/config.json
 
 %post
+# Prefer dnf (RPM packages) over pip: a corporate/air-gapped machine
+# often has a reachable local RED OS/RHEL mirror but no route to
+# pypi.org -- observed for real on a recipient's machine (numpy/Pillow
+# pip install timed out repeatedly while the package's own dnf install
+# worked fine in the same transaction). dnf failure (wrong package name
+# on this release, or genuinely no repo either) falls through to the
+# pip attempt exactly as before, so this only adds a chance of success,
+# never removes one.
 if ! python3 -c "import PyQt5, Xlib" >/dev/null 2>&1; then
     echo "watermark-overlay: installing Python dependencies (PyQt5, python-xlib)..."
+    dnf install -y python3-qt5 python3-xlib >/dev/null 2>&1 || \
     python3 -m pip install --quiet PyQt5 python-xlib || \
-        echo "watermark-overlay: WARNING - could not auto-install PyQt5/python-xlib via pip (no network access at install time?). Install manually, e.g.: dnf install python3-qt5 python3-xlib   -- or --   python3 -m pip install PyQt5 python-xlib" >&2
+        echo "watermark-overlay: WARNING - could not auto-install PyQt5/python-xlib via dnf or pip (no network/repo access at install time?). Install manually, e.g.: dnf install python3-qt5 python3-xlib   -- or --   python3 -m pip install PyQt5 python-xlib" >&2
 fi
 if ! python3 -c "import cryptography" >/dev/null 2>&1; then
     echo "watermark-overlay: installing Python dependency (cryptography, for watermark_type=dots)..."
+    dnf install -y python3-cryptography >/dev/null 2>&1 || \
     python3 -m pip install --quiet cryptography || \
-        echo "watermark-overlay: WARNING - could not auto-install cryptography via pip. watermark_type=dots will not work until you: python3 -m pip install cryptography" >&2
+        echo "watermark-overlay: WARNING - could not auto-install cryptography via dnf or pip. watermark_type=dots will not work until you: python3 -m pip install cryptography" >&2
 fi
 if ! python3 -c "import numpy, PIL" >/dev/null 2>&1; then
     echo "watermark-overlay: installing Python dependencies (numpy, Pillow, for watermark-decode)..."
+    dnf install -y python3-numpy python3-pillow >/dev/null 2>&1 || \
     python3 -m pip install --quiet numpy Pillow || \
-        echo "watermark-overlay: WARNING - could not auto-install numpy/Pillow via pip. 'watermark-decode' will not work until you: python3 -m pip install numpy Pillow" >&2
+        echo "watermark-overlay: WARNING - could not auto-install numpy/Pillow via dnf or pip. 'watermark-decode' will not work until you: python3 -m pip install numpy Pillow   -- or --   dnf install python3-numpy python3-pillow" >&2
 fi
 if [ ! -s %{_sysconfdir}/watermark-overlay/watermark.key ]; then
     echo "watermark-overlay: generating AES-256 key for watermark_type=dots at %{_sysconfdir}/watermark-overlay/watermark.key ..."
@@ -98,6 +109,33 @@ echo "watermark-overlay: to decode a watermark_type=dots screenshot later: water
 %ghost %attr(0640, root, watermark-overlay) %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
 
 %changelog
+* Thu Sep 03 2026 Watermark Project <noreply@example.com> - 0.6.0-1
+- Default watermark_type changed from "text" to "dots": a real
+  installer test on a recipient's machine surfaced that the shipped
+  config still showed the tiled readable text by default even though
+  the switching mechanism (config.json / --watermark-type) had been
+  built and verified -- the config default itself was never flipped.
+  config.example.json (installed as /etc/watermark-overlay/config.json
+  on a fresh install) now ships watermark_type=dots, dot_size and
+  key_file set, opacity bumped to 60 to match the dots example config.
+  Switching back to readable text is still one field edit away (the
+  text/font_size/angle fields are kept in the default file for that).
+  The script's own built-in HARD_DEFAULTS (used only when no config
+  file exists at all, e.g. a manual dev run) intentionally stays
+  "text" -- dots without a key file silently draws nothing, which is a
+  confusing default for someone just trying the script standalone.
+- %post now tries `dnf install` for PyQt5/python-xlib/cryptography/
+  numpy/Pillow before falling back to pip. Found on the same real
+  install: numpy/Pillow pip install failed with repeated pypi.org
+  timeouts (no route from that corporate network) while dnf itself
+  worked fine for the package's own transaction -- dnf failure still
+  falls through to the existing pip attempt, so this only adds a
+  chance of success. Package names assumed (python3-numpy,
+  python3-pillow, python3-cryptography, python3-qt5, python3-xlib) are
+  the common cross-distro convention, not yet confirmed to exist in
+  RED OS 8 repos specifically -- if wrong, install silently falls
+  through to pip exactly as before, no regression either way.
+
 * Mon Aug 17 2026 Watermark Project <noreply@example.com> - 0.5.0-1
 - Security: the overlay no longer just dies when killed -- the
   %{_bindir}/watermark-overlay wrapper is now a restart loop (basic

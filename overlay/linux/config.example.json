@@ -1,10 +1,12 @@
 {
   "text": "{user}",
-  "opacity": 45,
+  "opacity": 60,
   "font_size": 18,
   "angle": -30.0,
   "spacing": 80,
-  "watermark_type": "text",
+  "watermark_type": "dots",
+  "dot_size": 3,
+  "key_file": "/etc/watermark-overlay/watermark.key",
   "mode": "always",
   "apps": []
 }
