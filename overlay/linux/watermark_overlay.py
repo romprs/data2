@@ -141,7 +141,13 @@ def _random_layout_positions(
     rows = max(1, round(target_n / cols))
     cell_w = max(item_w, width / cols)
     cell_h = max(item_h, height / rows)
-    rng = random.Random(seed)
+    # random.Random() only accepts None/int/float/str/bytes/bytearray as
+    # a seed -- passing our (kind, width, height, ...) tuple directly
+    # raises TypeError. That's uncaught-in-paintEvent territory, where
+    # PyQt5 aborts the whole process (SIGABRT, no traceback) rather than
+    # printing anything, which is what made this bug so quiet. hash()
+    # turns the tuple into a plain int, which is accepted.
+    rng = random.Random(hash(seed))
     positions = []
     for r in range(int(height / cell_h) + 1):
         for c in range(int(width / cell_w) + 1):
