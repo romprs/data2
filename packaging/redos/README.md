@@ -11,14 +11,14 @@ GNOME/KDE/XFCE/MATE и т.д. **для каждого пользователя �
 
 ## Установка
 
-Скопируйте `dist/watermark-overlay-0.6.0-1.red80.noarch.rpm` на целевую
+Скопируйте `dist/watermark-overlay-0.7.0-1.red80.noarch.rpm` на целевую
 машину и установите:
 
 ```bash
-sudo dnf install ./watermark-overlay-0.6.0-1.red80.noarch.rpm
+sudo dnf install ./watermark-overlay-0.7.0-1.red80.noarch.rpm
 ```
 
-(или `sudo rpm -ivh ./watermark-overlay-0.6.0-1.red80.noarch.rpm`, если
+(или `sudo rpm -ivh ./watermark-overlay-0.7.0-1.red80.noarch.rpm`, если
 `dnf` недоступен).
 
 Пакет при установке (`%post`) сам проверит, есть ли `PyQt5`/`python-xlib`
@@ -100,12 +100,18 @@ sudo nano /etc/watermark-overlay/config.json
   (пакет генерирует его сам при установке, если отсутствует) —
   подробности и как расшифровать скриншот/фото при расследовании
   утечки через `watermark-decode` — в
-  [`../../overlay/linux/README.md`](../../overlay/linux/README.md#watermark_type-dots--зашифрованный-точечный-код-вместо-читаемого-текста).
+  [`../../overlay/linux/README.md`](../../overlay/linux/README.md#watermark_type-dots--зашифрованный-точечный-код-вместо-читаемого-текста);
+- `"layout": "random"` + `"density": 40` (с версии 0.7.0) — вместо
+  ровной сетки по `angle`/`spacing`, знак разбрасывается случайно по
+  экрану (без наложений — важно для `dots`), число повторов задаётся
+  `density` вместо `spacing`. По умолчанию остаётся `"layout": "grid"`
+  (как раньше).
 
 Примеры готовых конфигов —
 [`config.example.app_list.json`](../../overlay/linux/config.example.app_list.json),
-[`config.example.disabled.json`](../../overlay/linux/config.example.disabled.json)
-и [`config.example.dots.json`](../../overlay/linux/config.example.dots.json).
+[`config.example.disabled.json`](../../overlay/linux/config.example.disabled.json),
+[`config.example.dots.json`](../../overlay/linux/config.example.dots.json)
+и [`config.example.random.json`](../../overlay/linux/config.example.random.json).
 Подробнее про формат и `{user}`/`{host}`/`{time}` —
 [`../../overlay/linux/README.md`](../../overlay/linux/README.md).
 

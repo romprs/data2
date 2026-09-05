@@ -7,8 +7,8 @@ Content and editing are untouched: the window forwards all mouse and
 keyboard input to whatever is beneath it (Qt.WindowTransparentForInput)
 and never takes focus.
 
-Settings (text/opacity/font size/angle/spacing/mode/apps/watermark_type)
-come from, in order of increasing priority:
+Settings (text/opacity/font size/angle/spacing/layout/density/mode/apps/
+watermark_type) come from, in order of increasing priority:
   1. built-in defaults
   2. /etc/watermark-overlay/config.json      (system-wide default)
   3. ~/.config/watermark-overlay/config.json (per-user)
@@ -40,10 +40,29 @@ Two settings control *when* and *what* is shown:
     watermark text" tool) can read directly off the screen. See
     dotcode.py for the wire format.
 
+"layout" controls *how* repeats are positioned, independently of what
+is shown:
+  - "grid" (default): the existing regular tiling, rotated by "angle"
+    and spaced by "spacing".
+  - "random": a jittered-grid scatter instead -- the screen is divided
+    into cells sized to fit one item, and each item is placed at a
+    random offset within its own cell (guarantees no overlap, which
+    watermark_type=dots relies on to stay decodable, while still
+    reading as "random" rather than a rigid lattice). Item count is
+    controlled by "density" (target instance count on a
+    1920x1080-equivalent screen; scales with actual screen area) instead
+    of "spacing", and "angle" is ignored for watermark_type=dots (an
+    unrotated grid is what makes decode_dots.py's brute-force alignment
+    tractable) but still applied per-item for watermark_type=text/account.
+    Positions are deterministic for a given (screen size, item size,
+    density) so they don't reshuffle on every repaint -- only an actual
+    settings/resize change produces a new arrangement.
+
 Run:
     python3 watermark_overlay.py [--config PATH] [--text TEMPLATE]
                                   [--opacity 0-255] [--font-size PX]
                                   [--angle DEG] [--spacing PX]
+                                  [--layout grid|random] [--density N]
                                   [--mode always|app_list] [--apps A,B,C]
                                   [--watermark-type text|account|dots]
                                   [--dot-size PX] [--key-file PATH]
@@ -53,6 +72,7 @@ import getpass
 import json
 import os
 import pwd
+import random
 import socket
 import sys
 from datetime import datetime
@@ -91,7 +111,46 @@ HARD_DEFAULTS = {
     "apps": [],  # WM_CLASS substrings used when mode == "app_list"
     "dot_size": 3,  # dot diameter in px, used when watermark_type == "dots"
     "key_file": None,  # None -> dotcode.DEFAULT_KEY_PATH; used when watermark_type == "dots"
+    "layout": "grid",  # "grid" | "random"
+    "density": 40,  # random layout only: target instance count on a 1920x1080-equivalent screen
 }
+
+# Reference screen area "density" is calibrated against, so the same
+# density value gives roughly the same visual coverage regardless of
+# actual screen/monitor resolution.
+_DENSITY_REFERENCE_AREA = 1920 * 1080
+
+
+def _random_layout_positions(
+    width: int, height: int, item_w: int, item_h: int, density: float, seed: tuple
+) -> "list[tuple[int, int]]":
+    """Jittered-grid placement: the area is divided into cells at least
+    as large as one item, and each item is placed at a random offset
+    within its own cell. This guarantees items never overlap (required
+    for watermark_type=dots to stay decodable) while still reading as
+    "random" rather than a rigid lattice. `seed` is derived from the
+    current geometry/settings by the caller so the arrangement is
+    stable across repaints at the same settings and only reshuffles on
+    an actual change (resize, density edit, ...).
+    """
+    if width <= 0 or height <= 0 or item_w <= 0 or item_h <= 0:
+        return []
+    target_n = max(1, round(density * (width * height) / _DENSITY_REFERENCE_AREA))
+    aspect = width / height
+    cols = max(1, round((target_n * aspect) ** 0.5))
+    rows = max(1, round(target_n / cols))
+    cell_w = max(item_w, width / cols)
+    cell_h = max(item_h, height / rows)
+    rng = random.Random(seed)
+    positions = []
+    for r in range(int(height / cell_h) + 1):
+        for c in range(int(width / cell_w) + 1):
+            max_dx = max(0.0, cell_w - item_w)
+            max_dy = max(0.0, cell_h - item_h)
+            x = c * cell_w + rng.uniform(0, max_dx)
+            y = r * cell_h + rng.uniform(0, max_dy)
+            positions.append((int(x), int(y)))
+    return positions
 
 
 def account_label() -> str:
@@ -275,6 +334,24 @@ class WatermarkOverlay(QtWidgets.QWidget):
         metrics = QtGui.QFontMetrics(font)
         text_w = metrics.horizontalAdvance(text)
         text_h = metrics.height()
+
+        if v.get("layout") == "random":
+            positions = _random_layout_positions(
+                self.width(),
+                self.height(),
+                text_w,
+                text_h,
+                v.get("density", HARD_DEFAULTS["density"]),
+                seed=("text", self.width(), self.height(), text, v.get("density")),
+            )
+            for x, y in positions:
+                painter.save()
+                painter.translate(x, y)
+                painter.rotate(v["angle"])
+                painter.drawText(0, 0, text)
+                painter.restore()
+            return
+
         step_x = text_w + v["spacing"]
         step_y = text_h + v["spacing"]
 
@@ -308,26 +385,42 @@ class WatermarkOverlay(QtWidgets.QWidget):
         dot_size = v.get("dot_size", 3)
         cells = dotcode.grid_cell_positions(dot_size)
         tile_w, tile_h = dotcode.tile_size(dot_size)
-        step_x = tile_w + v["spacing"]
-        step_y = tile_h + v["spacing"]
 
         painter.setPen(QtCore.Qt.NoPen)
         painter.setBrush(QtGui.QColor(110, 110, 110, v["opacity"]))
 
-        # No rotation here (unlike text mode): the decoder needs to
-        # know exactly where each tile's grid cells are, and an
-        # unrotated, axis-aligned grid keeps that a simple, fast
-        # brute-force search over one tile period instead of also
-        # having to search rotation angles.
-        y = 0
-        while y < self.height():
-            x = 0
-            while x < self.width():
-                for bit, (dx, dy) in zip(bits, cells):
-                    if bit:
-                        painter.drawEllipse(x + dx, y + dy, dot_size, dot_size)
-                x += step_x
-            y += step_y
+        # No rotation here in either layout (unlike text mode): the
+        # decoder needs each tile's grid cells axis-aligned to keep its
+        # brute-force alignment search tractable. "random" layout still
+        # varies *position* per tile via a jittered grid (see
+        # _random_layout_positions) -- it guarantees tiles never
+        # overlap, which grid spacing does automatically and random
+        # placement would not without this.
+        if v.get("layout") == "random":
+            positions = _random_layout_positions(
+                self.width(),
+                self.height(),
+                tile_w,
+                tile_h,
+                v.get("density", HARD_DEFAULTS["density"]),
+                seed=("dots", self.width(), self.height(), tile_w, tile_h, v.get("density")),
+            )
+        else:
+            step_x = tile_w + v["spacing"]
+            step_y = tile_h + v["spacing"]
+            positions = []
+            y = 0
+            while y < self.height():
+                x = 0
+                while x < self.width():
+                    positions.append((x, y))
+                    x += step_x
+                y += step_y
+
+        for x, y in positions:
+            for bit, (dx, dy) in zip(bits, cells):
+                if bit:
+                    painter.drawEllipse(x + dx, y + dy, dot_size, dot_size)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         super().showEvent(event)
@@ -466,7 +559,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--opacity", type=int, default=None, help="Alpha channel of watermark text, 0-255")
     parser.add_argument("--font-size", type=int, default=None, help="Point size")
     parser.add_argument("--angle", type=float, default=None, help="Tile rotation in degrees")
-    parser.add_argument("--spacing", type=int, default=None, help="Gap between tiles in pixels")
+    parser.add_argument("--spacing", type=int, default=None, help="Gap between tiles in pixels (layout=grid)")
+    parser.add_argument(
+        "--layout",
+        choices=["grid", "random"],
+        default=None,
+        help="'grid' (default): regular tiling by --angle/--spacing. 'random': jittered scatter by --density",
+    )
+    parser.add_argument(
+        "--density",
+        type=float,
+        default=None,
+        help="layout=random: target instance count on a 1920x1080-equivalent screen (default: 40)",
+    )
     parser.add_argument(
         "--mode",
         choices=["always", "app_list", "none"],
@@ -505,6 +610,8 @@ def main() -> int:
         "font_size": args.font_size,
         "angle": args.angle,
         "spacing": args.spacing,
+        "layout": args.layout,
+        "density": args.density,
         "mode": args.mode,
         "apps": [a.strip() for a in args.apps.split(",") if a.strip()] if args.apps else None,
         "watermark_type": args.watermark_type,

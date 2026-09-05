@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.6.0
+Version:        0.7.0
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -109,6 +109,20 @@ echo "watermark-overlay: to decode a watermark_type=dots screenshot later: water
 %ghost %attr(0640, root, watermark-overlay) %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
 
 %changelog
+* Fri Sep 04 2026 Watermark Project <noreply@example.com> - 0.7.0-1
+- Add "layout": "grid" (default, unchanged regular tiling by
+  angle+spacing) | "random" (new: jittered-grid scatter controlled by
+  a new "density" field instead of spacing). Random layout guarantees
+  no overlap between repeats -- required for watermark_type=dots to
+  stay decodable -- by sizing cells to fit one item and placing it at
+  a random offset within its own cell, rather than truly unconstrained
+  random coordinates. Positions are deterministic for unchanged
+  settings/geometry so they don't reshuffle on every repaint. angle is
+  still ignored for dots in either layout (axis-alignment is what
+  keeps decode_dots.py's brute-force search tractable) but still
+  applies per-item in random layout for text/account. New
+  config.example.random.json; --layout/--density CLI flags.
+
 * Thu Sep 03 2026 Watermark Project <noreply@example.com> - 0.6.0-1
 - Default watermark_type changed from "text" to "dots": a real
   installer test on a recipient's machine surfaced that the shipped

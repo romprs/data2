@@ -1,0 +1,9 @@
+{
+  "opacity": 60,
+  "dot_size": 3,
+  "watermark_type": "dots",
+  "layout": "random",
+  "density": 40,
+  "mode": "always",
+  "key_file": "/etc/watermark-overlay/watermark.key"
+}
