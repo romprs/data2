@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.7.0
+Version:        0.7.1
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -109,6 +109,17 @@ echo "watermark-overlay: to decode a watermark_type=dots screenshot later: water
 %ghost %attr(0640, root, watermark-overlay) %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
 
 %changelog
+* Sun Sep 06 2026 Watermark Project <noreply@example.com> - 0.7.1-1
+- Fix a real crash in layout=random found while testing 0.7.0 on real
+  hardware: random.Random() rejects a tuple seed with TypeError, and
+  because that call happens inside paintEvent (a Qt virtual method),
+  PyQt5 has no way to propagate the Python exception through the C++
+  call stack -- it just aborts the whole process (SIGABRT, no
+  traceback), which is why 0.7.0 could silently crash instead of
+  printing an error. Fixed by hashing the seed tuple into a plain int
+  before passing it to random.Random(). If you already installed
+  0.7.0, upgrade to this version -- 0.7.0's layout=random is broken.
+
 * Fri Sep 04 2026 Watermark Project <noreply@example.com> - 0.7.0-1
 - Add "layout": "grid" (default, unchanged regular tiling by
   angle+spacing) | "random" (new: jittered-grid scatter controlled by
