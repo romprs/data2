@@ -1,5 +1,5 @@
 Name:           watermark-overlay
-Version:        0.7.1
+Version:        0.8.0
 Release:        1%{?dist}
 Summary:        Full-screen anti-leak watermark overlaying the logged-in user's name
 License:        Proprietary
@@ -36,9 +36,12 @@ rm -rf %{buildroot}
 install -Dm755 watermark_overlay.py %{buildroot}%{_datadir}/watermark-overlay/watermark_overlay.py
 install -Dm644 dotcode.py %{buildroot}%{_datadir}/watermark-overlay/dotcode.py
 install -Dm755 decode_dots.py %{buildroot}%{_datadir}/watermark-overlay/decode_dots.py
+install -Dm755 decode_dots_gui.py %{buildroot}%{_datadir}/watermark-overlay/decode_dots_gui.py
 install -Dm755 watermark-overlay.wrapper %{buildroot}%{_bindir}/watermark-overlay
 install -Dm755 watermark-decode.wrapper %{buildroot}%{_bindir}/watermark-decode
+install -Dm755 watermark-decode-gui.wrapper %{buildroot}%{_bindir}/watermark-decode-gui
 install -Dm644 watermark-overlay.desktop %{buildroot}%{_sysconfdir}/xdg/autostart/watermark-overlay.desktop
+install -Dm644 watermark-decode-gui.desktop %{buildroot}%{_datadir}/applications/watermark-decode-gui.desktop
 install -Dm644 config.json %{buildroot}%{_sysconfdir}/watermark-overlay/config.json
 
 %post
@@ -102,13 +105,28 @@ echo "watermark-overlay: to decode a watermark_type=dots screenshot later: water
 %{_datadir}/watermark-overlay/watermark_overlay.py
 %{_datadir}/watermark-overlay/dotcode.py
 %{_datadir}/watermark-overlay/decode_dots.py
+%{_datadir}/watermark-overlay/decode_dots_gui.py
 %{_bindir}/watermark-overlay
 %{_bindir}/watermark-decode
+%{_bindir}/watermark-decode-gui
 %{_sysconfdir}/xdg/autostart/watermark-overlay.desktop
+%{_datadir}/applications/watermark-decode-gui.desktop
 %config(noreplace) %{_sysconfdir}/watermark-overlay/config.json
 %ghost %attr(0640, root, watermark-overlay) %config(noreplace) %{_sysconfdir}/watermark-overlay/watermark.key
 
 %changelog
+* Sun Sep 06 2026 Watermark Project <noreply@example.com> - 0.8.0-1
+- Add watermark-decode-gui: a PyQt5 GUI for decode_dots.py (same stack
+  as the overlay, no new runtime dependency) so investigating a leak
+  doesn't need a terminal -- drag a screenshot/photo onto the window,
+  or use the "Открыть..." button, and read the decoded user/timestamp
+  off the window. First run asks once for the key file
+  (~/.config/watermark-overlay/decode-gui.json remembers it after
+  that); the key is never bundled with the tool itself. Installed as
+  /usr/bin/watermark-decode-gui plus an applications-menu .desktop
+  entry (not autostarted -- this is a manually-launched investigation
+  tool, unlike the overlay itself).
+
 * Sun Sep 06 2026 Watermark Project <noreply@example.com> - 0.7.1-1
 - Fix a real crash in layout=random found while testing 0.7.0 on real
   hardware: random.Random() rejects a tuple seed with TypeError, and

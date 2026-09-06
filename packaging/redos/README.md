@@ -203,8 +203,11 @@ bash build.sh
 | `/usr/share/watermark-overlay/watermark_overlay.py` | сам оверлей (копия [`overlay/linux/watermark_overlay.py`](../../overlay/linux/watermark_overlay.py)) |
 | `/usr/share/watermark-overlay/dotcode.py` | общий модуль кодирования/шифрования для режима `dots` |
 | `/usr/share/watermark-overlay/decode_dots.py` | офлайн-декодер для режима `dots` |
+| `/usr/share/watermark-overlay/decode_dots_gui.py` | графическая оболочка декодера (см. ниже) |
 | `/usr/bin/watermark-overlay` | обёртка для запуска оверлея |
-| `/usr/bin/watermark-decode` | обёртка для запуска декодера (`watermark-decode SCREENSHOT.png`) |
+| `/usr/bin/watermark-decode` | обёртка для запуска декодера из терминала (`watermark-decode SCREENSHOT.png`) |
+| `/usr/bin/watermark-decode-gui` | обёртка для запуска графического декодера |
+| `/usr/share/applications/watermark-decode-gui.desktop` | пункт в меню приложений для графического декодера (не автозапуск — запускается вручную, когда нужно) |
 | `/etc/xdg/autostart/watermark-overlay.desktop` | автозапуск для всех пользователей при входе в графическую сессию |
 | `/etc/watermark-overlay/config.json` | общие настройки (помечен `%config(noreplace)` — при обновлении пакета ваши правки не затираются) |
 | `/etc/watermark-overlay/watermark.key` | AES-256 ключ для режима `dots`, генерируется автоматически при первой установке, если отсутствует |

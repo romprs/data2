@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python3 /usr/share/watermark-overlay/decode_dots_gui.py "$@"

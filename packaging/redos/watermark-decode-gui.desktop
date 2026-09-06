@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Расшифровка водяного знака
+Comment=Расшифровать скриншот/фото с точечным водяным знаком (watermark_type=dots)
+Exec=/usr/bin/watermark-decode-gui %f
+Icon=security-high
+Terminal=false
+Categories=Utility;Security;
+MimeType=image/png;image/jpeg;image/webp;image/bmp;image/tiff;
